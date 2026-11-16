@@ -56,8 +56,28 @@ app/demo/                          the invoice and the service note the e2e run 
 ## Live
 
 - App: https://claim-settle.surge.sh
-- Contract (Studio Network): `0x0000000000000000000000000000000000000000`
-- Explorer: https://explorer-studio.genlayer.com/address/0x0000000000000000000000000000000000000000
+- Contract (Studio Network): `0xd59334B0841F9048eF8489fEb42Aa8fB5402DD7E`
+- Explorer: https://explorer-studio.genlayer.com/address/0xd59334B0841F9048eF8489fEb42Aa8fB5402DD7E
+
+## Two claims on the live contract
+
+One policy, cap 1000, deductible 100. The first claim points at a repair invoice; the second at a service note about wear, two weeks later.
+
+| what | transaction |
+| --- | --- |
+| `open_policy` — five clauses, cap 1000, deductible 100 | `0x87f3ea217c2c252741e999f5326343a04ff9e8b6999f79c98362e332a03b5d33` |
+| a stranger filing a claim — refused ("only the holder files a claim") | `0x3301662bda857d33e8211bc4420b110762efd1f53b0ad41fc0ef856fc88950e9` |
+| `file_claim` c-1 — 500 credits, repair invoice | `0x2864cad170289f75456cb955934dd43ba1eac6da28080eecdb85d8da26d0ba9d` |
+| `adjudicate` c-1 — **covered**, clause 1, payout **400**, 53s | `0xb1b8183bf65466979921812edeecedaea90bb9e15e8e3949fb050a51cae66b5b` |
+| adjudicating the same claim again — refused | `0x8f06e65ba12fdb7bb9d8066dff8f818863fe419db1315619d31c53ad615a574c` |
+| `file_claim` c-2 — 300 credits, the wear note | `0x750f17c5351ca19efa570864b8a9be985c4edcd40c9be0300a0e78b156c6f79b` |
+| `adjudicate` c-2 — **excluded**, clause 3, payout **0**, 61s | `0x46e3d0f6655d1cef8af37f54b8c77e2a349579919376aff57f4407710eb0c053` |
+
+The policy after both:
+
+```
+paid 400 of 1000 | headroom 600 | two claims, two settlements
+```
 
 ## Tests
 
