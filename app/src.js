@@ -36,6 +36,9 @@ function boot() {
   $("who").title = account.address;
 }
 
+const refreshBtn = document.getElementById("refresh");
+if (refreshBtn) refreshBtn.addEventListener("click", () => render());
+
 $("newkey").addEventListener("click", () => {
   localStorage.setItem(KEY_SLOT, JSON.stringify({ privateKey: generatePrivateKey() }));
   boot();
@@ -44,6 +47,19 @@ $("newkey").addEventListener("click", () => {
 });
 
 const read = (fn, args) => client.readContract({ address: CONTRACT, functionName: fn, args });
+
+async function readWithRetry(fn, args, tries = 2) {
+  let last;
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    try {
+      return await read(fn, args);
+    } catch (error) {
+      last = error;
+      await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+    }
+  }
+  throw last;
+}
 
 async function write(label, fn, args) {
   try {
@@ -67,7 +83,7 @@ async function write(label, fn, args) {
 
 async function renderMetrics() {
   try {
-    const s = await read("stats", []);
+    const s = await readWithRetry("stats", []);
     $("metrics").replaceChildren(
       ...[
         ["Policies", s.policies],
@@ -82,36 +98,38 @@ async function renderMetrics() {
       })
     );
   } catch (error) {
-    $("metrics").replaceChildren(el("div", "empty", `cannot read the contract: ${String(error.message).slice(0, 120)}`));
+    $("metrics").replaceChildren(el("div", "empty", "Reading the contract"));
   }
 }
 
 async function renderPolicies() {
   let rows = [];
   try {
-    rows = await read("list_policies", [0, 30]);
+    rows = await readWithRetry("list_policies", [0, 30]);
   } catch (error) {
-    $("policies").replaceChildren(el("div", "body empty", String(error.message).slice(0, 140)));
+    $("policies").replaceChildren(el("div", "empty", "The network did not answer."));
     return;
   }
   $("pcount").textContent = String(rows.length);
   if (!rows.length) {
-    $("policies").replaceChildren(el("div", "body empty", "No policy yet."));
+    $("policies").replaceChildren(el("div", "empty", "No policy yet."));
     return;
   }
   $("policies").replaceChildren(
     ...rows.map((policy) => {
       const button = el("button", `pol${selected === policy.id ? " sel" : ""}`);
-      const top = el("div");
-      top.style.display = "flex";
-      top.style.gap = "8px";
-      top.style.alignItems = "center";
-      top.append(el("strong", "", policy.title));
-      top.append(el("span", `tag ${policy.status}`, policy.status));
-      button.append(top);
+      const line1 = el("div", "line1");
+      line1.append(el("strong", "", policy.title));
+      line1.append(el("span", `tag ${policy.status}`, policy.status));
+      button.append(line1);
       button.append(
-        el("div", "sub2", `cap ${policy.cap} / deductible ${policy.deductible} / ${policy.claims} claims / headroom ${policy.headroom}`)
+        el("div", "sub2", `cap ${policy.cap} / deductible ${policy.deductible} / ${policy.claims} claims`)
       );
+      const track = el("div", "mini-track");
+      const fill = el("i");
+      fill.style.width = `${policy.cap ? Math.min(100, Math.round((policy.paid / policy.cap) * 100)) : 0}%`;
+      track.append(fill);
+      button.append(track);
       button.addEventListener("click", () => {
         selected = policy.id;
         render();
@@ -131,26 +149,31 @@ function decisionTag(claim) {
 }
 
 function claimCard(claim, policy, isInsurer, isHolder) {
-  const box = el("div", "claim");
+  const settled = claim.status === "settled";
+  const box = el("div", `claim${settled ? ` settled ${claim.decision}` : ""}`);
   const top = el("div", "top");
-  top.append(el("strong", "", `claim ${claim.id}`));
+  top.append(el("strong", "", claim.id));
   top.append(decisionTag(claim));
-  if (claim.clause) top.append(el("span", "muted", `clause: ${claim.clause}`));
+  if (claim.clause) {
+    const line = el("div", "clause-line", `clause ${claim.clause.length > 96 ? `${claim.clause.slice(0, 96)}…` : claim.clause}`);
+    line.title = claim.clause;
+    box.append(line);
+  }
   box.append(top);
 
   box.append(el("div", "desc", claim.description));
 
-  if (claim.status === "settled") {
+  if (settled) {
     const math = el("div", "math");
     const cells = [
-      ["claimed", String(claim.amount)],
-      ["deductible", String(policy.deductible)],
-      ["decision", claim.decision],
-      ["payout", String(claim.payout)],
+      ["claimed", String(claim.amount), false],
+      ["deductible", String(policy.deductible), false],
+      ["decision", claim.decision, false],
+      ["payout", String(claim.payout), true],
     ];
-    for (const [label, value] of cells) {
-      const cell = el("div");
-      const b = el("b", label === "payout" ? "payout" : "", value);
+    for (const [label, value, isPayout] of cells) {
+      const cell = el("div", isPayout ? "payout-cell" : "");
+      const b = el("b", isPayout ? "payout" : "", value);
       cell.append(b, el("span", "", label));
       math.append(cell);
     }
@@ -168,8 +191,8 @@ function claimCard(claim, policy, isInsurer, isHolder) {
 }
 
 function claimForm(policy, isHolder) {
-  const body = el("div", "body");
-  body.append(el("h3", "", "File a claim"));
+  const body = el("div", "fill-form");
+  body.append(el("h3", "claims-title", "File a claim"));
   body.append(el("p", "note", `You are the holder. The evidence page is read against the terms and the decision names the clause.`));
 
   body.append(el("label", "", "Amount"));
@@ -211,50 +234,78 @@ async function renderDetail() {
   let policy;
   let claims;
   try {
-    policy = await read("get_policy", [selected]);
-    claims = await read("claims_of", [selected]);
+    policy = await readWithRetry("get_policy", [selected]);
+    claims = await readWithRetry("claims_of", [selected]);
   } catch (error) {
-    $("detail").replaceChildren(el("div", "body empty", String(error.message).slice(0, 160)));
+    $("detail").replaceChildren(el("div", "empty", "The network did not answer. It retries on its own in a moment."));
     return;
   }
   const me = account.address.toLowerCase();
   const isInsurer = policy.insurer === me;
   const isHolder = policy.holder === me;
 
-  const head = el("div", "body");
+  const head = el("div");
+  const top = el("div", "policy-top");
   const title = el("div", "policy-head");
-  const line = el("div");
-  line.style.display = "flex";
-  line.style.gap = "8px";
-  line.style.alignItems = "center";
-  line.append(el("h3", "", policy.title));
-  line.append(el("span", `tag ${policy.status}`, policy.status));
-  title.append(line);
-  title.append(el("div", "muted", `insurer ${short(policy.insurer)}${isInsurer ? " (you)" : ""} / holder ${short(policy.holder)}${isHolder ? " (you)" : ""}`));
-  title.append(el("div", "muted", `cap ${policy.cap} / deductible ${policy.deductible} / paid ${policy.paid} / headroom ${policy.headroom}`));
-  head.append(title);
+  title.append(el("h3", "", policy.title));
+  title.append(el("span", `tag ${policy.status}`, policy.status));
+  top.append(title);
+  top.append(
+    el("div", "muted", `insurer ${short(policy.insurer)}${isInsurer ? " (you)" : ""} / holder ${short(policy.holder)}${isHolder ? " (you)" : ""}`)
+  );
 
-  head.append(el("div", "terms", policy.terms));
+  const facts = el("div", "facts");
+  for (const [value, label] of [
+    [String(policy.cap), "cap"],
+    [String(policy.paid), "paid"],
+    [String(policy.headroom), "headroom"],
+  ]) {
+    const cell = el("div", "fact");
+    cell.append(el("b", "", value), el("span", "", label));
+    facts.append(cell);
+  }
+  top.append(facts);
+
+  const cover = el("div", "cover");
+  const track = el("div", "track");
+  const fill = el("i");
+  fill.style.width = `${policy.cap ? Math.min(100, Math.round((policy.paid / policy.cap) * 100)) : 0}%`;
+  track.append(fill);
+  cover.append(track);
+  const legend = el("div", "legend2");
+  legend.append(el("span", "", `${policy.paid} paid`), el("span", "", `${policy.headroom} left`));
+  cover.append(legend);
+  top.append(cover);
+  head.append(top);
+
+  const terms = el("div", "terms");
+  terms.textContent = policy.terms;
+  head.append(terms);
+
+  const claimsWrap = el("div", "claims");
+  const claimsTitle = el("div", "claims-title");
+  claimsTitle.append(el("span", "", "Claim history"));
+  const tally = el("span", "", `${claims.filter((c) => c.status === "settled").length} settled of ${claims.length}`);
+  claimsTitle.append(tally);
+  claimsWrap.append(claimsTitle);
+
+  if (!claims.length) claimsWrap.append(el("div", "empty", "No claim filed on this policy yet."));
+  for (const claim of claims) claimsWrap.append(claimCard(claim, policy, isInsurer, isHolder));
 
   if (isInsurer && policy.status === "active") {
     const actions = el("div", "actions");
-    const close = el("button", "", "Close policy");
+    const close = el("button", "ghost", "Close policy");
     close.addEventListener("click", () => write("Closing the policy", "close_policy", [policy.id]));
     actions.append(close);
-    head.append(actions);
+    claimsWrap.append(actions);
   }
 
-  const list = el("div");
-  list.style.padding = "0 18px";
-  if (!claims.length) list.append(el("div", "body empty", "No claim filed on this policy yet."));
-  for (const claim of claims) list.append(claimCard(claim, policy, isInsurer, isHolder));
-  head.append(list);
+  claimsWrap.append(
+    el("p", "note", "Payout is min(claim, cap) minus the deductible, halved for a partial, and never more than the headroom left on the policy.")
+  );
+  head.append(claimsWrap);
 
   if (isHolder && policy.status === "active") head.append(claimForm(policy, isHolder));
-
-  head.append(
-    el("p", "note", "Payout = min(claim, cap) − deductible, halved for a partial, and never more than the headroom left on the policy.")
-  );
 
   $("detail").replaceChildren(head);
 }
@@ -291,4 +342,3 @@ $("do-policy").addEventListener("click", async () => {
 
 boot();
 render();
-setInterval(render, 20000);

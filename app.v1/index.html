@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ClaimSettle, the terms are on chain, the decision names its clause</title>
+<meta name="description" content="A micro-insurance policy whose terms live on chain: one consensus round decides covered, partial or excluded, and the payout is arithmetic." />
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --card: #ffffff;
+    --ink: #232b28;
+    --muted: #6b746f;
+    --line: #e4e3dd;
+    --accent: #2f6b52;
+    --accent-soft: #eaf3ee;
+    --gold: #9a6a1f;
+    --gold-soft: #fbf2e2;
+    --red: #a63a34;
+    --red-soft: #fbeceb;
+    --radius: 16px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .shell { max-width: 1120px; margin: 0 auto; padding: 0 24px 100px; }
+
+  header { padding: 22px 0 0; }
+  .bar { display: flex; align-items: center; gap: 14px; }
+  .logo { font-weight: 680; letter-spacing: -0.02em; display: flex; align-items: center; gap: 9px; }
+  .logo i { width: 26px; height: 26px; border-radius: 50% 50% 50% 6px; background: var(--accent); display: block; }
+  .sub { color: var(--muted); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .right button { white-space: nowrap; }
+  @media (max-width: 880px) { .sub { display: none; } }
+  .right { margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--muted); }
+
+  .hero { padding: 46px 0 10px; max-width: 780px; }
+  h1 { font-size: clamp(30px, 3.6vw, 44px); line-height: 1.1; letter-spacing: -0.035em; margin: 0 0 14px; }
+  .lede { color: #55605a; font-size: 16.5px; margin: 0; }
+  .strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin: 28px 0 0; }
+  @media (max-width: 760px) { .strip { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  .metric { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .metric b { display: block; font-size: 21px; letter-spacing: -0.02em; }
+  .metric span { font-size: 12.5px; color: var(--muted); }
+
+  .cols { display: grid; grid-template-columns: 340px 1fr; gap: 22px; margin-top: 30px; align-items: start; }
+  @media (max-width: 940px) { .cols { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .panel > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted);
+                margin: 0; padding: 15px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  .panel > .body { padding: 18px; }
+
+  .pol { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line);
+         background: transparent; font: inherit; color: inherit; padding: 14px 18px; cursor: pointer; }
+  .pol:last-child { border-bottom: 0; }
+  .pol:hover { background: #fbfbf9; }
+  .pol.sel { background: var(--accent-soft); }
+  .pol strong { display: block; font-size: 15px; letter-spacing: -0.01em; }
+  .pol .sub2 { color: var(--muted); font-size: 12.8px; margin-top: 3px; }
+
+  .tag { font-size: 11.5px; border-radius: 999px; padding: 3px 9px; border: 1px solid var(--line);
+         color: var(--muted); background: #fff; white-space: nowrap; }
+  .tag.active { color: var(--accent); border-color: #cfe3d8; background: var(--accent-soft); }
+  .tag.closed { color: var(--muted); background: #f1f0ec; }
+  .tag.covered { color: var(--accent); border-color: #cfe3d8; background: var(--accent-soft); }
+  .tag.partial { color: var(--gold); border-color: #ecd9b7; background: var(--gold-soft); }
+  .tag.excluded { color: var(--red); border-color: #efd0cd; background: var(--red-soft); }
+  .tag.filed { color: var(--muted); }
+
+  .policy-head h3 { margin: 0 0 4px; font-size: 21px; letter-spacing: -0.025em; }
+  .muted { color: var(--muted); font-size: 13.5px; }
+  .terms { background: #fafaf8; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+           font-size: 14px; color: #3d4642; white-space: pre-wrap; margin: 14px 0; max-height: 240px; overflow: auto; }
+
+  .claim { border-top: 1px solid var(--line); padding: 16px 0; }
+  .claim:first-child { border-top: 0; padding-top: 6px; }
+  .claim .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .claim .top strong { font-size: 15px; }
+  .claim .desc { color: #4b5650; font-size: 14px; margin-top: 6px; }
+  .claim .quote { margin-top: 8px; border-left: 2px solid var(--line); padding-left: 10px; color: #55605a; font-size: 13.5px; }
+  .math { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+  .math div { background: #fafaf8; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .math b { display: block; font-size: 15px; }
+  .math span { font-size: 11.8px; color: var(--muted); }
+  .payout { color: var(--accent); }
+
+  label { display: block; font-size: 12.5px; color: var(--muted); margin: 12px 0 5px; }
+  input, textarea { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px;
+                    background: #fff; font: inherit; color: var(--ink); }
+  textarea { min-height: 84px; resize: vertical; }
+  input:focus, textarea:focus { outline: 2px solid #cfe3d8; border-color: #a9cbb9; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line);
+           background: #fff; color: var(--ink); padding: 9px 14px; }
+  button:hover { border-color: #cfcdc4; }
+  button.go { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.go:hover { background: #275a45; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .note { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #232b28; color: #fff;
+           padding: 11px 16px; border-radius: 10px; font-size: 13.5px; max-width: min(560px, 92vw); z-index: 60;
+           box-shadow: 0 10px 28px rgba(35,43,40,.2); }
+  .toast.bad { background: #7a2a25; }
+  code { font-family: var(--mono); font-size: 12.5px; background: #f1f0ec; padding: 1px 6px; border-radius: 5px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="bar">
+      <div class="logo"><i></i> ClaimSettle</div>
+      <span class="sub">terms on chain / the decision names its clause / the payout is arithmetic</span>
+      <div class="right">
+        <span id="who">no key</span>
+        <button id="newkey">New key</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>A claim decided by the terms, not by whoever opens the inbox.</h1>
+    <p class="lede">The insurer writes the policy text, the cap and the deductible on chain. The holder files a claim with an evidence page. One consensus round names the clause it relied on and answers covered, partial or excluded, then the contract does the arithmetic and writes a settlement.</p>
+    <div class="strip" id="metrics"></div>
+  </section>
+
+  <div class="cols">
+    <section class="panel">
+      <h2>Policies <span id="pcount" class="tag" style="margin-left:auto">0</span></h2>
+      <div id="policies"></div>
+      <div class="body" style="border-top:1px solid var(--line)">
+        <button id="toggle-form" style="width:100%">Write a policy</button>
+        <div id="pform" style="display:none">
+          <label for="p-title">Title</label>
+          <input id="p-title" placeholder="Laptop accidental damage" />
+          <label for="p-holder">Holder address</label>
+          <input id="p-holder" placeholder="0x…" />
+          <label for="p-terms">Terms (what is covered, what is excluded)</label>
+          <textarea id="p-terms" placeholder="1. Covered: accidental damage… 2. Excluded: loss, theft, cosmetic wear…"></textarea>
+          <div class="row">
+            <div><label for="p-cap">Cap</label><input id="p-cap" type="number" value="1000" /></div>
+            <div><label for="p-ded">Deductible</label><input id="p-ded" type="number" value="100" /></div>
+          </div>
+          <div class="actions"><button class="go" id="do-policy">Publish policy</button></div>
+          <p class="note">Terms are read by the validators on every claim. They are written once.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="detail">
+      <div class="body"><div class="empty">Pick a policy on the left, or write the first one.</div></div>
+    </section>
+  </div>
+</div>
+<script src="./bundle.js"></script>
+</body>
+</html>
