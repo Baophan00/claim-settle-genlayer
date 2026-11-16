@@ -151,15 +151,15 @@ function decisionTag(claim) {
 function claimCard(claim, policy, isInsurer, isHolder) {
   const settled = claim.status === "settled";
   const box = el("div", `claim${settled ? ` settled ${claim.decision}` : ""}`);
-  const top = el("div", "top");
+  const top = el("div", "claim-top");
   top.append(el("strong", "", claim.id));
   top.append(decisionTag(claim));
+  box.append(top);
   if (claim.clause) {
     const line = el("div", "clause-line", `clause ${claim.clause.length > 96 ? `${claim.clause.slice(0, 96)}…` : claim.clause}`);
     line.title = claim.clause;
     box.append(line);
   }
-  box.append(top);
 
   box.append(el("div", "desc", claim.description));
 
